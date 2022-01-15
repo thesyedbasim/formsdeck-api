@@ -1,11 +1,10 @@
 import type { NextApiRequest, NextApiResponse } from 'next';
 import axios from 'axios';
 import Cors from 'cors';
+import UserApiError from '../../../../lib/classes/UserApiError';
 
 const cors = Cors({ origin: '*', methods: ['POST'] });
 
-// Helper method to wait for a middleware to execute before continuing
-// And to throw an error when an error happens in a middleware
 function runMiddleware(
 	req: NextApiRequest,
 	res: NextApiResponse,
@@ -41,18 +40,21 @@ const generateDiscordURL = (raw: string): string => {
 export default function handler(req: NextApiRequest, res: NextApiResponse) {
 	runMiddleware(req, res, cors);
 
-	// s09457348548--skdjflskdjfoisjof
-	// https://discord.com/api/webhooks/s09457348548--skdjflskdjfoisjof
 	const { responseSendURL: responseSendURLRaw } = req.query;
 	const responseSendURL = generateDiscordURL(responseSendURLRaw as string);
 
-	console.log('req body', req.body);
-
 	try {
-		if (req.method !== 'POST') throw new Error('Invalid request');
+		if (req.method !== 'POST')
+			throw new UserApiError(
+				'This URI only accepts POST http requests for form submission.',
+				400
+			);
+
+		if (!req.body || Object.entries(req.body).length === 0)
+			throw new UserApiError('Form is empty, no inputs.', 400);
 
 		const fields = Object.entries(req.body).map(([key, value]) => ({
-			name: key,
+			name: key || 'N/A',
 			value:
 				typeof value === 'string'
 					? !value || value.trim().length === 0
@@ -62,7 +64,7 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 		}));
 
 		if (!responseSendURL || responseSendURL.trim().length === 0)
-			throw new Error('No form action specified.');
+			throw new UserApiError('No form action specified.', 400);
 
 		const discordEmbed = { fields } || {
 			description:
@@ -77,8 +79,15 @@ export default function handler(req: NextApiRequest, res: NextApiResponse) {
 			{ headers: { 'Content-Type': 'application/json' } }
 		);
 
+		res.status(201).send('Your form was submitted successfully.');
 		res.end();
 	} catch (err) {
+		if (err instanceof UserApiError) {
+			res.status(err.statusCode).send(err.message);
+
+			return;
+		}
+
 		res
 			.status(500)
 			.send(
